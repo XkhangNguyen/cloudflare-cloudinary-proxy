@@ -4,24 +4,52 @@ addEventListener("fetch", event => {
   event.respondWith(handleRequest(event))
 })
 
-const CLOUD_URL = `https://res.cloudinary.com/${CLOUD_NAME}/image`;
+const CLOUD_URL = `https://res.cloudinary.com`;
 
 async function serveAsset(event) {
-  const url = new URL(event.request.url)
-  const cache = caches.default
-  let response = await cache.match(event.request)
+  const url = new URL(event.request.url);
+  const cache = caches.default;
+
+  let response = await cache.match(event.request);
+
   if (!response) {
+    console.log("Cache miss");
+
     const cloudinaryURL = `${CLOUD_URL}${url.pathname}`;
-    response = await fetch(cloudinaryURL, { headers: event.request.headers })
-    // Cache for however long, here is 4 hours.
-    const headers = new Headers(response.headers);
-    headers.set("cache-control", `public, max-age=14400`);
-    headers.set("vary", "Accept");
-    response = new Response(response.body, { ...response, headers })
-    event.waitUntil(cache.put(event.request, response.clone()))
+    console.log(`Proxying to Cloudinary: ${cloudinaryURL}`);
+
+    const originResponse = await fetch(cloudinaryURL, {
+      headers: {
+        "Accept": event.request.headers.get("Accept") || "*/*",
+      },
+    });
+
+    if (originResponse.status >= 400) {
+      console.log(`Cloudinary error: ${originResponse.status} ${originResponse.statusText}`);
+    }
+
+    const headers = new Headers(originResponse.headers);
+    headers.set("Cache-Control", "public, max-age=31536000");
+    headers.set("Vary", "Accept");
+    headers.set("Access-Control-Allow-Origin", "*");
+
+    response = new Response(originResponse.body, {
+      status: originResponse.status,
+      statusText: originResponse.statusText,
+      headers,
+    });
+
+    if (originResponse.status < 400) {
+      event.waitUntil(cache.put(event.request, response.clone()));
+    }
+  } else {
+    console.log("Cache hit");
   }
-  return response
+
+  return response;
 }
+
+
 
 async function handleRequest(event) {
   console.log('Requesting the image')
