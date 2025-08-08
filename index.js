@@ -1,10 +1,8 @@
-// Based on https://developers.cloudflare.com/workers/tutorials/configure-your-cdn
-
 addEventListener("fetch", event => {
   event.respondWith(handleRequest(event))
 })
 
-const CLOUD_URL = `https://res.cloudinary.com`;
+const CLOUD_URL = `https://res.cloudinary.com/${CLOUD_NAME}/image`;
 
 async function serveAsset(event) {
   const url = new URL(event.request.url);
@@ -14,34 +12,15 @@ async function serveAsset(event) {
 
   if (!response) {
     console.log("Cache miss");
-
     const cloudinaryURL = `${CLOUD_URL}${url.pathname}`;
     console.log(`Proxying to Cloudinary: ${cloudinaryURL}`);
 
-    const originResponse = await fetch(cloudinaryURL, {
-      headers: {
-        "Accept": event.request.headers.get("Accept") || "*/*",
-      },
-    });
-
-    if (originResponse.status >= 400) {
-      console.log(`Cloudinary error: ${originResponse.status} ${originResponse.statusText}`);
-    }
-
-    const headers = new Headers(originResponse.headers);
-    headers.set("Cache-Control", "public, max-age=31536000");
-    headers.set("Vary", "Accept");
-    headers.set("Access-Control-Allow-Origin", "*");
-
-    response = new Response(originResponse.body, {
-      status: originResponse.status,
-      statusText: originResponse.statusText,
-      headers,
-    });
-
-    if (originResponse.status < 400) {
-      event.waitUntil(cache.put(event.request, response.clone()));
-    }
+    response = await fetch(cloudinaryURL, { headers: event.request.headers })
+    const headers = new Headers(response.headers);
+    headers.set("cache-control", `public, max-age=31536000`);
+    headers.set("vary", "Accept");
+    response = new Response(response.body, { ...response, headers })
+    event.waitUntil(cache.put(event.request, response.clone()))
   } else {
     console.log("Cache hit");
   }
